@@ -37,10 +37,41 @@ const tutorCollection = db.collection("tutor");
 const bookingCollection = db.collection("bookings");
 
 app.get("/", (req, res) => {
-  res.send("server is running fine");
+  res.send("Server is running fine");
 });
 
-// home page — 6টা featured tutor
+// ===============================
+// SEARCH + DATE FILTER
+// ===============================
+app.get("/tutor", async (req, res) => {
+  try {
+    const { search, startDate, endDate } = req.query;
+
+    let query = {};
+
+    if (search) {
+      query.tutorName = {
+        $regex: search,
+        $options: "i",
+      };
+    }
+
+    if (startDate || endDate) {
+      query.startDate = {};
+      if (startDate) query.startDate.$gte = startDate;
+      if (endDate) query.startDate.$lte = endDate;
+    }
+
+    const result = await tutorCollection.find(query).toArray();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===============================
+// FEATURED
+// ===============================
 app.get("/tutor/featured", async (req, res) => {
   try {
     const result = await tutorCollection.find({}).limit(6).toArray();
@@ -50,28 +81,23 @@ app.get("/tutor/featured", async (req, res) => {
   }
 });
 
-// get tutors by user email
+// ===============================
+// ⭐ GET TUTORS BY USER EMAIL
+// (must be BEFORE /tutor/:id)
+// ===============================
 app.get("/tutor/user/:email", async (req, res) => {
   try {
     const { email } = req.params;
-    const result = await tutorCollection.find({ addedBy: email }).toArray();
+    const result = await tutorCollection.find({ email }).toArray();
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// all tutors
-app.get("/tutor", async (req, res) => {
-  try {
-    const result = await tutorCollection.find({}).toArray();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// get single tutor
+// ===============================
+// SINGLE TUTOR BY ID
+// ===============================
 app.get("/tutor/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -84,7 +110,9 @@ app.get("/tutor/:id", async (req, res) => {
   }
 });
 
-// add tutor
+// ===============================
+// ADD TUTOR
+// ===============================
 app.post("/tutor", async (req, res) => {
   try {
     const tutorData = req.body;
@@ -95,7 +123,9 @@ app.post("/tutor", async (req, res) => {
   }
 });
 
-// delete tutor
+// ===============================
+// DELETE TUTOR
+// ===============================
 app.delete("/tutor/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -108,21 +138,54 @@ app.delete("/tutor/:id", async (req, res) => {
   }
 });
 
-// create booking
+// ===============================
+// ADD BOOKING
+// ===============================
 app.post("/bookings", async (req, res) => {
   try {
     const bookingData = req.body;
+
+    const tutor = await tutorCollection.findOne({
+      _id: new ObjectId(bookingData.tutorId),
+    });
+
+    if (!tutor) {
+      return res.status(404).json({ message: "Tutor not found" });
+    }
+
+    if (parseInt(tutor.totalSlots) <= 0) {
+      return res.status(400).json({ message: "This session is fully booked" });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const sessionDate = new Date(tutor.startDate);
+    sessionDate.setHours(0, 0, 0, 0);
+
+    if (today < sessionDate) {
+      return res.status(400).json({ message: "Booking not started yet" });
+    }
+
     const result = await bookingCollection.insertOne({
       ...bookingData,
       status: "confirmed",
     });
+
+    await tutorCollection.updateOne(
+      { _id: new ObjectId(bookingData.tutorId) },
+      { $inc: { totalSlots: -1 } }
+    );
+
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// get bookings by email
+// ===============================
+// GET BOOKINGS BY EMAIL
+// ===============================
 app.get("/bookings/:email", async (req, res) => {
   try {
     const { email } = req.params;
@@ -135,7 +198,9 @@ app.get("/bookings/:email", async (req, res) => {
   }
 });
 
-// cancel booking
+// ===============================
+// CANCEL BOOKING
+// ===============================
 app.patch("/bookings/:id", async (req, res) => {
   try {
     const { id } = req.params;
