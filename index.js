@@ -2,6 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 
 dotenv.config();
 
@@ -21,9 +22,30 @@ const client = new MongoClient(uri, {
   },
 });
 
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+);
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req?.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    next();
+  } catch (error) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+};
+
 async function connectDB() {
   try {
-    await client.connect();
     console.log("MongoDB connected successfully");
   } catch (err) {
     console.error("MongoDB connection failed:", err);
@@ -40,9 +62,6 @@ app.get("/", (req, res) => {
   res.send("Server is running fine");
 });
 
-// ===============================
-// SEARCH + DATE FILTER
-// ===============================
 app.get("/tutor", async (req, res) => {
   try {
     const { search, startDate, endDate } = req.query;
@@ -69,9 +88,6 @@ app.get("/tutor", async (req, res) => {
   }
 });
 
-// ===============================
-// FEATURED
-// ===============================
 app.get("/tutor/featured", async (req, res) => {
   try {
     const result = await tutorCollection.find({}).limit(6).toArray();
@@ -81,24 +97,17 @@ app.get("/tutor/featured", async (req, res) => {
   }
 });
 
-// ===============================
-// ⭐ GET TUTORS BY USER EMAIL
-// (must be BEFORE /tutor/:id)
-// ===============================
 app.get("/tutor/user/:email", async (req, res) => {
   try {
     const { email } = req.params;
-    const result = await tutorCollection.find({ email }).toArray();
+    const result = await tutorCollection.find({ addedBy: email }).toArray();
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===============================
-// SINGLE TUTOR BY ID
-// ===============================
-app.get("/tutor/:id", async (req, res) => {
+app.get("/tutor/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await tutorCollection.findOne({
@@ -110,9 +119,6 @@ app.get("/tutor/:id", async (req, res) => {
   }
 });
 
-// ===============================
-// ADD TUTOR
-// ===============================
 app.post("/tutor", async (req, res) => {
   try {
     const tutorData = req.body;
@@ -123,9 +129,6 @@ app.post("/tutor", async (req, res) => {
   }
 });
 
-// ===============================
-// DELETE TUTOR
-// ===============================
 app.delete("/tutor/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -138,9 +141,6 @@ app.delete("/tutor/:id", async (req, res) => {
   }
 });
 
-// ===============================
-// ADD BOOKING
-// ===============================
 app.post("/bookings", async (req, res) => {
   try {
     const bookingData = req.body;
@@ -183,9 +183,6 @@ app.post("/bookings", async (req, res) => {
   }
 });
 
-// ===============================
-// GET BOOKINGS BY EMAIL
-// ===============================
 app.get("/bookings/:email", async (req, res) => {
   try {
     const { email } = req.params;
@@ -198,9 +195,6 @@ app.get("/bookings/:email", async (req, res) => {
   }
 });
 
-// ===============================
-// CANCEL BOOKING
-// ===============================
 app.patch("/bookings/:id", async (req, res) => {
   try {
     const { id } = req.params;
