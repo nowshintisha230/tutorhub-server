@@ -117,6 +117,21 @@ app.post("/tutor", async (req, res) => {
   }
 });
 
+app.put("/tutor/:id", async (req, res) => {
+  try {
+    await connectDB();
+    const { id } = req.params;
+    const updatedData = req.body;
+    const result = await tutorCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedData }
+    );
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete("/tutor/:id", async (req, res) => {
   try {
     await connectDB();
