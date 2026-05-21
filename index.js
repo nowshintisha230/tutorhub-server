@@ -22,6 +22,16 @@ const client = new MongoClient(uri, {
   },
 });
 
+// ✅ Cached connection — serverless এ crash করবে না
+let isConnected = false;
+async function connectDB() {
+  if (!isConnected) {
+    await client.connect();
+    isConnected = true;
+    console.log("MongoDB connected");
+  }
+}
+
 const JWKS = createRemoteJWKSet(
   new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
 );
@@ -29,10 +39,8 @@ const JWKS = createRemoteJWKSet(
 const verifyToken = async (req, res, next) => {
   const authHeader = req?.headers.authorization;
   if (!authHeader) return res.status(401).json({ message: "Unauthorized" });
-
   const token = authHeader.split(" ")[1];
   if (!token) return res.status(401).json({ message: "Unauthorized" });
-
   try {
     await jwtVerify(token, JWKS);
     next();
@@ -45,34 +53,21 @@ const db = client.db("tutorhub");
 const tutorCollection = db.collection("tutor");
 const bookingCollection = db.collection("bookings");
 
-app.use(async (req, res, next) => {
-  try {
-    await client.connect();
-    next();
-  } catch (err) {
-    res.status(500).json({ error: "Database connection failed" });
-  }
-});
-
 app.get("/", (req, res) => {
   res.send("Server is running fine");
 });
 
 app.get("/tutor", async (req, res) => {
   try {
+    await connectDB();
     const { search, startDate, endDate } = req.query;
     let query = {};
-
-    if (search) {
-      query.tutorName = { $regex: search, $options: "i" };
-    }
-
+    if (search) query.tutorName = { $regex: search, $options: "i" };
     if (startDate || endDate) {
       query.startDate = {};
       if (startDate) query.startDate.$gte = startDate;
       if (endDate) query.startDate.$lte = endDate;
     }
-
     const result = await tutorCollection.find(query).toArray();
     res.json(result);
   } catch (err) {
@@ -82,6 +77,7 @@ app.get("/tutor", async (req, res) => {
 
 app.get("/tutor/featured", async (req, res) => {
   try {
+    await connectDB();
     const result = await tutorCollection.find({}).limit(6).toArray();
     res.json(result);
   } catch (err) {
@@ -91,6 +87,7 @@ app.get("/tutor/featured", async (req, res) => {
 
 app.get("/tutor/user/:email", async (req, res) => {
   try {
+    await connectDB();
     const { email } = req.params;
     const result = await tutorCollection.find({ addedBy: email }).toArray();
     res.json(result);
@@ -101,6 +98,7 @@ app.get("/tutor/user/:email", async (req, res) => {
 
 app.get("/tutor/:id", verifyToken, async (req, res) => {
   try {
+    await connectDB();
     const { id } = req.params;
     const result = await tutorCollection.findOne({ _id: new ObjectId(id) });
     res.json(result);
@@ -111,6 +109,7 @@ app.get("/tutor/:id", verifyToken, async (req, res) => {
 
 app.post("/tutor", async (req, res) => {
   try {
+    await connectDB();
     const tutorData = req.body;
     const result = await tutorCollection.insertOne(tutorData);
     res.json(result);
@@ -121,6 +120,7 @@ app.post("/tutor", async (req, res) => {
 
 app.delete("/tutor/:id", async (req, res) => {
   try {
+    await connectDB();
     const { id } = req.params;
     const result = await tutorCollection.deleteOne({ _id: new ObjectId(id) });
     res.json(result);
@@ -131,19 +131,18 @@ app.delete("/tutor/:id", async (req, res) => {
 
 app.post("/bookings", async (req, res) => {
   try {
+    await connectDB();
     const bookingData = req.body;
+    console.log("Booking data:", bookingData);
 
     const tutor = await tutorCollection.findOne({
       _id: new ObjectId(bookingData.tutorId),
     });
 
-    if (!tutor) {
-      return res.status(404).json({ message: "Tutor not found" });
-    }
+    if (!tutor) return res.status(404).json({ message: "Tutor not found" });
 
-    if (parseInt(tutor.totalSlots) <= 0) {
+    if (parseInt(tutor.totalSlots) <= 0)
       return res.status(400).json({ message: "This session is fully booked" });
-    }
 
     const result = await bookingCollection.insertOne({
       ...bookingData,
@@ -157,12 +156,14 @@ app.post("/bookings", async (req, res) => {
 
     res.json(result);
   } catch (err) {
+    console.error("Booking error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.get("/bookings/:email", async (req, res) => {
   try {
+    await connectDB();
     const { email } = req.params;
     const result = await bookingCollection
       .find({ studentEmail: email })
@@ -175,17 +176,15 @@ app.get("/bookings/:email", async (req, res) => {
 
 app.patch("/bookings/:id", async (req, res) => {
   try {
+    await connectDB();
     const { id } = req.params;
 
     const booking = await bookingCollection.findOne({ _id: new ObjectId(id) });
 
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    if (booking.status === "cancelled") {
+    if (booking.status === "cancelled")
       return res.status(400).json({ message: "Booking is already cancelled" });
-    }
 
     const result = await bookingCollection.updateOne(
       { _id: new ObjectId(id) },
