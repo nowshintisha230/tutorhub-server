@@ -22,16 +22,6 @@ const client = new MongoClient(uri, {
   },
 });
 
-// ✅ Cached connection — serverless এ crash করবে না
-let isConnected = false;
-async function connectDB() {
-  if (!isConnected) {
-    await client.connect();
-    isConnected = true;
-    console.log("MongoDB connected");
-  }
-}
-
 const JWKS = createRemoteJWKSet(
   new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
 );
@@ -52,6 +42,15 @@ const verifyToken = async (req, res, next) => {
 const db = client.db("tutorhub");
 const tutorCollection = db.collection("tutor");
 const bookingCollection = db.collection("bookings");
+
+let isConnected = false;
+async function connectDB() {
+  if (!isConnected) {
+    await client.connect();
+    isConnected = true;
+    console.log("MongoDB connected");
+  }
+}
 
 app.get("/", (req, res) => {
   res.send("Server is running fine");
@@ -133,7 +132,6 @@ app.post("/bookings", async (req, res) => {
   try {
     await connectDB();
     const bookingData = req.body;
-    console.log("Booking data:", bookingData);
 
     const tutor = await tutorCollection.findOne({
       _id: new ObjectId(bookingData.tutorId),
@@ -141,7 +139,9 @@ app.post("/bookings", async (req, res) => {
 
     if (!tutor) return res.status(404).json({ message: "Tutor not found" });
 
-    if (parseInt(tutor.totalSlots) <= 0)
+    const slots = parseInt(tutor.totalSlots);
+
+    if (slots <= 0)
       return res.status(400).json({ message: "This session is fully booked" });
 
     const result = await bookingCollection.insertOne({
@@ -151,7 +151,7 @@ app.post("/bookings", async (req, res) => {
 
     await tutorCollection.updateOne(
       { _id: new ObjectId(bookingData.tutorId) },
-      { $inc: { totalSlots: -1 } }
+      { $set: { totalSlots: slots - 1 } }
     );
 
     res.json(result);
@@ -191,9 +191,13 @@ app.patch("/bookings/:id", async (req, res) => {
       { $set: { status: "cancelled" } }
     );
 
+    const tutor = await tutorCollection.findOne({
+      _id: new ObjectId(booking.tutorId),
+    });
+
     await tutorCollection.updateOne(
       { _id: new ObjectId(booking.tutorId) },
-      { $inc: { totalSlots: 1 } }
+      { $set: { totalSlots: parseInt(tutor.totalSlots) + 1 } }
     );
 
     res.json(result);
