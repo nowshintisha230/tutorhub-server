@@ -41,182 +41,170 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-async function run() {
+const db = client.db("tutorhub");
+const tutorCollection = db.collection("tutor");
+const bookingCollection = db.collection("bookings");
+
+app.use(async (req, res, next) => {
   try {
     await client.connect();
-    console.log("MongoDB connected successfully");
-
-    const db = client.db("tutorhub");
-    const tutorCollection = db.collection("tutor");
-    const bookingCollection = db.collection("bookings");
-
-    app.get("/", (req, res) => {
-      res.send("Server is running fine");
-    });
-
-    app.get("/tutor", async (req, res) => {
-      try {
-        const { search, startDate, endDate } = req.query;
-        let query = {};
-
-        if (search) {
-          query.tutorName = { $regex: search, $options: "i" };
-        }
-
-        if (startDate || endDate) {
-          query.startDate = {};
-          if (startDate) query.startDate.$gte = startDate;
-          if (endDate) query.startDate.$lte = endDate;
-        }
-
-        const result = await tutorCollection.find(query).toArray();
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.get("/tutor/featured", async (req, res) => {
-      try {
-        const result = await tutorCollection.find({}).limit(6).toArray();
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.get("/tutor/user/:email", async (req, res) => {
-      try {
-        const { email } = req.params;
-        const result = await tutorCollection
-          .find({ addedBy: email })
-          .toArray();
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.get("/tutor/:id", verifyToken, async (req, res) => {
-      try {
-        const { id } = req.params;
-        const result = await tutorCollection.findOne({
-          _id: new ObjectId(id),
-        });
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.post("/tutor", async (req, res) => {
-      try {
-        const tutorData = req.body;
-        const result = await tutorCollection.insertOne(tutorData);
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.delete("/tutor/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const result = await tutorCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.post("/bookings", async (req, res) => {
-      try {
-        const bookingData = req.body;
-
-        const tutor = await tutorCollection.findOne({
-          _id: new ObjectId(bookingData.tutorId),
-        });
-
-        if (!tutor) {
-          return res.status(404).json({ message: "Tutor not found" });
-        }
-
-        if (parseInt(tutor.totalSlots) <= 0) {
-          return res
-            .status(400)
-            .json({ message: "This session is fully booked" });
-        }
-
-        const result = await bookingCollection.insertOne({
-          ...bookingData,
-          status: "confirmed",
-        });
-
-        await tutorCollection.updateOne(
-          { _id: new ObjectId(bookingData.tutorId) },
-          { $inc: { totalSlots: -1 } }
-        );
-
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.get("/bookings/:email", async (req, res) => {
-      try {
-        const { email } = req.params;
-        const result = await bookingCollection
-          .find({ studentEmail: email })
-          .toArray();
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.patch("/bookings/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-
-        const booking = await bookingCollection.findOne({
-          _id: new ObjectId(id),
-        });
-
-        if (!booking) {
-          return res.status(404).json({ message: "Booking not found" });
-        }
-
-        if (booking.status === "cancelled") {
-          return res
-            .status(400)
-            .json({ message: "Booking is already cancelled" });
-        }
-
-        const result = await bookingCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { status: "cancelled" } }
-        );
-
-        await tutorCollection.updateOne(
-          { _id: new ObjectId(booking.tutorId) },
-          { $inc: { totalSlots: 1 } }
-        );
-
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
+    next();
   } catch (err) {
-    console.error("Failed to connect MongoDB:", err);
+    res.status(500).json({ error: "Database connection failed" });
   }
-}
+});
 
-run();
+app.get("/", (req, res) => {
+  res.send("Server is running fine");
+});
+
+app.get("/tutor", async (req, res) => {
+  try {
+    const { search, startDate, endDate } = req.query;
+    let query = {};
+
+    if (search) {
+      query.tutorName = { $regex: search, $options: "i" };
+    }
+
+    if (startDate || endDate) {
+      query.startDate = {};
+      if (startDate) query.startDate.$gte = startDate;
+      if (endDate) query.startDate.$lte = endDate;
+    }
+
+    const result = await tutorCollection.find(query).toArray();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/tutor/featured", async (req, res) => {
+  try {
+    const result = await tutorCollection.find({}).limit(6).toArray();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/tutor/user/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const result = await tutorCollection.find({ addedBy: email }).toArray();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/tutor/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await tutorCollection.findOne({ _id: new ObjectId(id) });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/tutor", async (req, res) => {
+  try {
+    const tutorData = req.body;
+    const result = await tutorCollection.insertOne(tutorData);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/tutor/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await tutorCollection.deleteOne({ _id: new ObjectId(id) });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/bookings", async (req, res) => {
+  try {
+    const bookingData = req.body;
+
+    const tutor = await tutorCollection.findOne({
+      _id: new ObjectId(bookingData.tutorId),
+    });
+
+    if (!tutor) {
+      return res.status(404).json({ message: "Tutor not found" });
+    }
+
+    if (parseInt(tutor.totalSlots) <= 0) {
+      return res.status(400).json({ message: "This session is fully booked" });
+    }
+
+    const result = await bookingCollection.insertOne({
+      ...bookingData,
+      status: "confirmed",
+    });
+
+    await tutorCollection.updateOne(
+      { _id: new ObjectId(bookingData.tutorId) },
+      { $inc: { totalSlots: -1 } }
+    );
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/bookings/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const result = await bookingCollection
+      .find({ studentEmail: email })
+      .toArray();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/bookings/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await bookingCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (booking.status === "cancelled") {
+      return res.status(400).json({ message: "Booking is already cancelled" });
+    }
+
+    const result = await bookingCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: "cancelled" } }
+    );
+
+    await tutorCollection.updateOne(
+      { _id: new ObjectId(booking.tutorId) },
+      { $inc: { totalSlots: 1 } }
+    );
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+module.exports = app;
